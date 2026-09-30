@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Host Security Auditor | Go + Local LLM SOC Pipeline</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <!-- Top App Header -->
+  <header class="app-header">
+    <div class="logo-area">
+      <div class="logo-icon">🛡️</div>
+      <div class="logo-text">
+        <h1>Host Security Auditor</h1>
+        <span>Архитектура аудита защищенности хостов (Go + Local LLM)</span>
+      </div>
+    </div>
+    <div class="header-status">
+      <div class="status-badge" title="Статус подключения к локальному LLM клиенту (TextGen/Ollama)">
+        <span class="dot warn" id="dot-llm"></span>
+        <span id="status-llm-label">LLM: TextGen / OpenAI</span>
+      </div>
+      <button class="btn-icon" id="btn-open-settings" title="Настройки API, Nmap и модели">
+        ⚙️ Настройки
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Workspace Layout -->
+  <div class="main-layout">
+    <!-- Left Sidebar: Controls & Tasks History -->
+    <aside class="sidebar">
+      <div>
+        <div class="card-title">🎯 Цель аудита</div>
+        <div class="form-group">
+          <label class="form-label" for="target-input">IP-адрес, CIDR или домен:</label>
+          <input type="text" id="target-input" class="form-input" placeholder="192.168.1.10 или test.local" autofocus>
+          <div class="form-help" id="target-feedback">Укажите IP (192.168.1.1), CIDR или домен</div>
+        </div>
+
+        <div class="card-title">⚙️ Профиль сканирования</div>
+        <div class="profiles-list" id="profiles-container">
+          <!-- Dynamically populated from /api/profiles -->
+        </div>
+
+        <div class="card-title" style="margin-top: 1rem;">🧠 Режим анализа и отчета</div>
+        <div class="form-group" style="display:flex; flex-direction:column; gap:0.55rem; background:rgba(255,255,255,0.02); padding:0.6rem; border-radius:6px; border:1px solid var(--border-color);">
+          <label style="display:flex; align-items:flex-start; gap:0.5rem; cursor:pointer; font-size:0.82rem;">
+            <input type="radio" name="scan-mode" id="mode-hybrid" value="hybrid" checked style="margin-top:0.2rem;">
+            <div>
+              <strong style="color:var(--text-main);">🤖 Комплексный аудит (ИИ SOC-аналитик)</strong>
+              <div style="font-size:0.75rem; color:var(--text-dim); margin-top:2px;">Паспорт хоста + автоанализ от нейросети для руководства</div>
+            </div>
+          </label>
+          <label style="display:flex; align-items:flex-start; gap:0.5rem; cursor:pointer; font-size:0.82rem;">
+            <input type="radio" name="scan-mode" id="mode-express" value="express" style="margin-top:0.2rem;">
+            <div>
+              <strong style="color:var(--text-main);">⚡ Экспресс-аудит (Без нейросети, 2 сек)</strong>
+              <div style="font-size:0.75rem; color:var(--text-dim); margin-top:2px;">Мгновенный эталонный отчет по правилам безопасности</div>
+            </div>
+          </label>
+        </div>
+
+        <div style="margin-top: 1.25rem;">
+          <button class="btn-primary" id="btn-start-scan">
+            🚀 Запустить аудит хоста
+          </button>
+          <button class="btn-secondary" id="btn-start-demo" title="Запускает симуляцию со стендом из PDF (Ubuntu 5.4, WordPress RCE, Samba RCE)">
+            🧪 Стендовый тест (из PDF)
+          </button>
+        </div>
+      </div>
+
+      <!-- History of recent scans -->
+      <div class="tasks-history">
+        <div class="card-title">🕒 История задач</div>
+        <div class="tasks-list" id="tasks-history-list">
+          <div style="padding:0.5rem; color:var(--text-dim); font-size:0.75rem;">Загрузка истории...</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Right Content Area: Results, Stepper, Metrics, Tabs -->
+    <main class="content-area">
+      <!-- Pipeline Stepper -->
+      <div class="pipeline-stepper">
+        <div class="step-item" id="step-scan">
+          <div class="step-circle">1</div>
+          <div class="step-title">Nmap Сканирование</div>
+          <div class="step-desc">Сбор портов, ОС и NSE CVE</div>
+        </div>
+        <div class="step-item" id="step-norm">
+          <div class="step-circle">2</div>
+          <div class="step-title">Нормализация</div>
+          <div class="step-desc">Формирование JSON-манифеста</div>
+        </div>
+        <div class="step-item" id="step-llm">
+          <div class="step-circle">3</div>
+          <div class="step-title">Синтез в LLM</div>
+          <div class="step-desc">Промпт SOC аналитика (TextGen)</div>
+        </div>
+        <div class="step-item" id="step-report">
+          <div class="step-circle">4</div>
+          <div class="step-title">Бизнес-сводка</div>
+          <div class="step-desc">Отчет и рекомендации</div>
+        </div>
+      </div>
+
+      <!-- Live Terminal for Process Output -->
+      <div class="terminal-window">
+        <div class="terminal-header">
+          <span>>_ КОНСОЛЬ ВЫПОЛНЕНИЯ ПАЙПЛАЙНА</span>
+          <span style="color: var(--accent-blue);">PIPELINE RUNNER</span>
+        </div>
+        <div class="terminal-body" id="terminal-logs">Ожидание запуска аудита хоста...</div>
+      </div>
+
+      <!-- Summary Metrics Grid -->
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-icon blue">🌐</div>
+          <div>
+            <div class="metric-value" id="metric-target">-</div>
+            <div class="metric-label">Целевой IP-адрес</div>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon green">💻</div>
+          <div>
+            <div class="metric-value" id="metric-os" style="font-size:1rem;">-</div>
+            <div class="metric-label">Детектированная ОС</div>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon yellow">🔓</div>
+          <div>
+            <div class="metric-value" id="metric-ports">0</div>
+            <div class="metric-label">Открытых портов</div>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon red">🚨</div>
+          <div>
+            <div class="metric-value" id="metric-cves">0</div>
+            <div class="metric-label">Найденных CVE</div>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon blue">⏱️</div>
+          <div>
+            <div class="metric-value" id="metric-duration">-</div>
+            <div class="metric-label">Длительность</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <div class="tabs-header">
+        <button class="tab-btn active" data-tab="tab-report">
+          📊 Бизнес-сводка ИБ (LLM Отчет)
+        </button>
+        <button class="tab-btn" data-tab="tab-services">
+          🛡️ Службы и CVE
+        </button>
+        <button class="tab-btn" data-tab="tab-manifest">
+          📋 Контекстный JSON-манифест
+        </button>
+        <button class="tab-btn" data-tab="tab-xml">
+          📜 Сырой Nmap XML
+        </button>
+      </div>
+
+      <!-- Tab 1: LLM Report -->
+      <div class="tab-panel active" id="tab-report">
+        <div class="report-container">
+          <div class="report-toolbar">
+            <button class="btn-icon" id="btn-reanalyze" title="Повторно отправить JSON в TextGen">🔄 Перегенерировать LLM</button>
+            <button class="btn-icon" id="btn-download-md" title="Скачать в формате Markdown">📥 Скачать .md</button>
+            <button class="btn-icon" id="btn-print" title="Распечатать или сохранить в PDF">🖨️ Печать / PDF</button>
+          </div>
+          <div class="report-body" id="report-content">
+            <em>Запустите сканирование или выберите задачу из истории для просмотра отчета.</em>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 2: Services & CVEs -->
+      <div class="tab-panel" id="tab-services">
+        <table class="services-table">
+          <thead>
+            <tr>
+              <th>Порт</th>
+              <th>Служба</th>
+              <th>Продукт</th>
+              <th>Версия</th>
+              <th>Найденные CVE (NSE Script)</th>
+            </tr>
+          </thead>
+          <tbody id="services-tbody">
+            <tr>
+              <td colspan="5" style="text-align:center; color:var(--text-dim);">Данные отсутствуют</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Tab 3: JSON Manifest (Strict Context) -->
+      <div class="tab-panel" id="tab-manifest">
+        <div style="margin-bottom:0.75rem; display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:0.8rem; color:var(--text-muted);">
+            Данный нормализованный манифест передается в модель (исключая шум и галлюцинации):
+          </span>
+          <button class="btn-icon" id="btn-copy-json">📋 Копировать JSON</button>
+        </div>
+        <pre class="json-viewer" id="json-manifest">// Манифест будет отображен после завершения сканирования</pre>
+      </div>
+
+      <!-- Tab 4: Raw XML -->
+      <div class="tab-panel" id="tab-xml">
+        <pre class="json-viewer" id="raw-xml-content">// Сырой XML вывод Nmap</pre>
+      </div>
+    </main>
+  </div>
+
+  <!-- Settings Modal Dialog -->
+  <div class="modal-overlay" id="settings-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>⚙️ Настройки аудитора и LLM инференса</h3>
+        <button class="btn-icon" id="btn-close-settings">✕</button>
+      </div>
+      <div>
+        <div class="form-group">
+          <label class="form-label" for="cfg-provider">Провайдер LLM API:</label>
+          <select id="cfg-provider" class="form-input">
+            <option value="openai">TextGen WebUI / LM Studio / OpenAI-совместимый (/v1)</option>
+            <option value="ollama">Ollama Native API (/api/chat)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="cfg-endpoint">API Эндпоинт LLM:</label>
+          <input type="text" id="cfg-endpoint" class="form-input" placeholder="http://127.0.0.1:5000/v1">
+          <div class="form-help">Для TextGen: <code>http://127.0.0.1:5000/v1</code>. Для Ollama: <code>http://127.0.0.1:11434/v1</code></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="cfg-model">Название модели:</label>
+          <input type="text" id="cfg-model" class="form-input" placeholder="qwen2.5:7b">
+          <div class="form-help">Рекомендуется: <code>qwen2.5</code>, <code>mistral</code>, <code>llama3.1</code></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="cfg-key">API Ключ (если требуется):</label>
+          <input type="password" id="cfg-key" class="form-input" placeholder="Оставьте пустым для локального сервера">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="cfg-temp">Температура выборки (Temperature):</label>
+          <input type="number" id="cfg-temp" class="form-input" min="0" max="1" step="0.05" value="0.2">
+          <div class="form-help">Рекомендуется 0.1 - 0.25 для строгого следования фактам без додумывания</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="cfg-nmap-path">Путь к бинарнику Nmap:</label>
+          <input type="text" id="cfg-nmap-path" class="form-input" placeholder="nmap или C:\Program Files\Nmap\nmap.exe">
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:1.25rem;">
+          <button class="btn-icon" id="btn-test-llm">🔌 Проверить связь с TextGen</button>
+          <span id="test-feedback" style="font-size:0.8rem;"></span>
+        </div>
+
+        <div style="margin-top:1.5rem;">
+          <button class="btn-primary" id="btn-save-settings">💾 Сохранить настройки</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

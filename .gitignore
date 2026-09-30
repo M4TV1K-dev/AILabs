@@ -1,0 +1,27 @@
+# Исполняемые и скомпилированные бинарные файлы
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+auditor
+
+# Локальные конфигурационные файлы
+config.json
+
+# Временные файлы, логи и дампы отладки
+*.log
+*.tmp
+*~
+Thinking Process.txt
+.gitingnore
+
+# Файлы IDE и редакторов кода
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Системные файлы ОС
+.DS_Store
+Thumbs.db

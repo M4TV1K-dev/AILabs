@@ -1,0 +1,93 @@
+package scanner
+
+import (
+	"context"
+	"fmt"
+	"time"
+)
+
+// MockRunner simulates an Nmap scan with authentic XML matching the PDF test scenario
+type MockRunner struct{}
+
+func NewMockRunner() *MockRunner {
+	return &MockRunner{}
+}
+
+func (m *MockRunner) RunScan(ctx context.Context, target string, profile ScanProfile, onLog func(string)) ([]byte, error) {
+	onLog(fmt.Sprintf("[DEMO WORKER] Инициализация стендового аудита для хоста %s...", target))
+	time.Sleep(300 * time.Millisecond)
+
+	onLog(fmt.Sprintf("[DEMO WORKER] Применение профиля: %s (%s)", profile.Name, profile.ID))
+	time.Sleep(300 * time.Millisecond)
+
+	onLog("[DEMO WORKER] Отправка SYN-пакетов и определение открытых портов (22/tcp, 80/tcp, 445/tcp)...")
+	time.Sleep(400 * time.Millisecond)
+
+	onLog("[DEMO WORKER] Захват баннеров служб (OpenSSH 8.2p1, Apache/WordPress 5.0.3, Samba 4.3.11)...")
+	time.Sleep(400 * time.Millisecond)
+
+	if profile.ID == ProfileAggressive {
+		onLog("[DEMO WORKER] Запуск NSE-скриптов уязвимостей (vulners)... Сопоставление с базой CVE...")
+		time.Sleep(500 * time.Millisecond)
+		onLog("[DEMO WORKER] Найдена критическая уязвимость: CVE-2017-7494 (Samba RCE, CVSS 9.8)")
+		onLog("[DEMO WORKER] Найдена критическая уязвимость: CVE-2019-8942 (WordPress RCE, CVSS 8.8)")
+	}
+
+	onLog("[DEMO WORKER] Сборка Nmap XML документа...")
+	time.Sleep(200 * time.Millisecond)
+
+	xmlData := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<nmaprun scanner="nmap" args="nmap -sV --version-all -sC --script=vulners -O -T3 %s" start="1727310000" version="7.94">
+<host starttime="1727310000" endtime="1727310025">
+<status state="up" reason="syn-ack"/>
+<address addr="%s" addrtype="ipv4"/>
+<hostnames>
+  <hostname name="vuln-test-host.local" type="user"/>
+</hostnames>
+<ports>
+  <port protocol="tcp" portid="22">
+    <state state="open" reason="syn-ack"/>
+    <service name="ssh" product="OpenSSH" version="8.2p1" extrainfo="Ubuntu-4ubuntu0.1" method="probed" conf="10"/>
+    <script id="banner" output="SSH-2.0-OpenSSH_8.2p1 Ubuntu-4ubuntu0.1"/>
+  </port>
+  <port protocol="tcp" portid="80">
+    <state state="open" reason="syn-ack"/>
+    <service name="http" product="Apache httpd / WordPress" version="WordPress 5.0.3" method="probed" conf="10"/>
+    <script id="vulners" output="cpe:/a:wordpress:wordpress:5.0.3:&#xa;  CVE-2019-8942 8.8 https://vulners.com/cve/CVE-2019-8942 *EXPLOIT* RCE via image upload&#xa;  CVE-2019-8943 5.0 https://vulners.com/cve/CVE-2019-8943 Path Traversal vulnerability">
+      <table key="cpe:/a:wordpress:wordpress:5.0.3">
+        <table key="CVE-2019-8942">
+          <elem key="id">CVE-2019-8942</elem>
+          <elem key="cvss">8.8</elem>
+          <elem key="type">RCE via image upload</elem>
+        </table>
+        <table key="CVE-2019-8943">
+          <elem key="id">CVE-2019-8943</elem>
+          <elem key="cvss">5.0</elem>
+          <elem key="type">Path Traversal</elem>
+        </table>
+      </table>
+    </script>
+  </port>
+  <port protocol="tcp" portid="445">
+    <state state="open" reason="syn-ack"/>
+    <service name="microsoft-ds" product="Samba smbd" version="4.3.11" extrainfo="Ubuntu" method="probed" conf="10"/>
+    <script id="vulners" output="cpe:/a:samba:samba:4.3.11:&#xa;  CVE-2017-7494 9.8 https://vulners.com/cve/CVE-2017-7494 *EXPLOIT* Remote Code Execution">
+      <table key="cpe:/a:samba:samba:4.3.11">
+        <table key="CVE-2017-7494">
+          <elem key="id">CVE-2017-7494</elem>
+          <elem key="cvss">9.8</elem>
+          <elem key="type">Remote Code Execution</elem>
+        </table>
+      </table>
+    </script>
+  </port>
+</ports>
+<os>
+  <osmatch name="Linux Ubuntu (ядро 5.4.x)" accuracy="97"/>
+</os>
+</host>
+</nmaprun>`, target, target)
+
+	return []byte(xmlData), nil
+}
