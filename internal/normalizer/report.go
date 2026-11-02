@@ -32,6 +32,23 @@ func CleanAIOutput(raw string) string {
 
 		// Otherwise look for Russian section headers
 		russianMarkers := []string{
+			"# 🛡️",
+			"# Аналитический",
+			"# Отчет",
+			"## 🚨",
+			"## 🔴",
+			"## 🟡",
+			"## 🟢",
+			"## Уровень критичности",
+			"## Ценность инцидента",
+			"## 💼",
+			"## Экспертное",
+			"## 🔍",
+			"## 🎯",
+			"## 🛠️",
+			"### 🔴",
+			"### 🟡",
+			"### 🟢",
 			"**Оценка угрозы",
 			"Оценка угрозы",
 			"### 💼",
@@ -102,13 +119,22 @@ func ExtractBestAIAnalysis(mainContent, reasoning string, finishReason string) s
 
 	isTruncated := finishReason == "length" || isAbruptlyCut(cleanedMain)
 
+	isComplete := func(s string) bool {
+		return strings.Contains(s, "меры защиты") ||
+			strings.Contains(s, "Меры защиты") ||
+			strings.Contains(s, "Action Plan") ||
+			strings.Contains(s, "Ключевой вывод") ||
+			strings.Contains(s, "Рекомендации") ||
+			strings.Contains(s, "План")
+	}
+
 	// If main content has complete sections and isn't truncated, use it
-	if cleanedMain != "" && !isTruncated && strings.Contains(cleanedMain, "Ключевой вывод") {
+	if cleanedMain != "" && (!isTruncated || isComplete(cleanedMain)) {
 		return trimAbruptEnding(cleanedMain)
 	}
 
-	// If reasoning contains a full draft with key conclusion, prefer it!
-	if strings.Contains(cleanedReasoning, "Ключевой вывод") {
+	// If reasoning contains a full draft with completion markers, prefer it!
+	if isComplete(cleanedReasoning) {
 		return trimAbruptEnding(cleanedReasoning)
 	}
 
@@ -330,6 +356,264 @@ func BuildExecutiveReport(m *IncidentManifest, aiAnalysis string, reasoningLog s
 		sb.WriteString(strings.TrimSpace(reasoningLog) + "\n")
 		sb.WriteString("```\n")
 		sb.WriteString("</details>\n")
+	}
+
+	return sb.String()
+}
+
+// BuildTechnicalReport creates a deterministic, factual technical report.
+// Used by security engineers for verification and fact-checking against AI conclusions.
+func BuildTechnicalReport(m *IncidentManifest) string {
+	var sb strings.Builder
+	now := time.Now().Format("02.01.2006 15:04")
+
+	maxCVSS := 0.0
+	cveCount := 0
+	hasRemoteAccess := false
+
+	for _, s := range m.OpenServices {
+		for _, c := range s.ReportedCVEs {
+			cveCount++
+			if c.CVSS > maxCVSS {
+				maxCVSS = c.CVSS
+			}
+		}
+		if s.Port == 22 || s.Port == 3389 || s.Port == 445 || s.Port == 21 || s.Port == 23 {
+			hasRemoteAccess = true
+		}
+	}
+
+	riskBadge := "🟢 **НИЗКИЙ (Штатное состояние)**"
+	if maxCVSS >= 7.0 {
+		riskBadge = fmt.Sprintf("🔴 **КРИТИЧЕСКИЙ (CVSS %.1f / Высокая угроза взлома)**", maxCVSS)
+	} else if maxCVSS > 0.0 || hasRemoteAccess {
+		riskBadge = "🟡 **СРЕДНИЙ / ПОВЫШЕННЫЙ (Требует внимания ИТ-службы)**"
+	}
+
+	// --- 1. HEADER ---
+	sb.WriteString("# 🔍 Технический отчет аудита сетевого хоста (Сверка фактов)\n\n")
+	sb.WriteString(fmt.Sprintf("> **Объект аудита:** `%s` | **Дата:** `%s` | **Профиль:** `%s` | **Статус:** `Завершен`\n\n",
+		m.TargetMetadata.IP, now, m.TargetMetadata.ScanType))
+	sb.WriteString("> ℹ️ *Данный раздел содержит строгую техническую сводку фактов, извлеченных из Nmap-сканирования, и предназначен для верификации и перекрестной сверки выводов языковой модели.*\n\n")
+
+	// --- 2. PASSPORT TABLE ---
+	sb.WriteString("### 📊 Паспорт проверяемого сетевого узла\n\n")
+	sb.WriteString("| Параметр аудита | Значение |\n")
+	sb.WriteString("| :--- | :--- |\n")
+	sb.WriteString(fmt.Sprintf("| **Целевой адрес / Домен** | `%s` |\n", m.TargetMetadata.IP))
+	if m.TargetMetadata.Hostnames != "" {
+		sb.WriteString(fmt.Sprintf("| **Сетевое имя (Hostname)** | `%s` |\n", m.TargetMetadata.Hostnames))
+	}
+	sb.WriteString(fmt.Sprintf("| **Операционная система** | `%s` |\n", m.TargetMetadata.OSDetected))
+	sb.WriteString(fmt.Sprintf("| **Открытых сетевых портов** | `%d` |\n", len(m.OpenServices)))
+	sb.WriteString(fmt.Sprintf("| **Обнаружено уязвимостей (CVE)** | `%d` |\n", cveCount))
+	sb.WriteString(fmt.Sprintf("| **Детерминированный уровень риска** | %s |\n\n", riskBadge))
+
+	// --- 3. TIERS ---
+	var redItems, yellowItems, greenItems []string
+	for _, s := range m.OpenServices {
+		if len(s.ReportedCVEs) > 0 {
+			serviceMaxCVSS := 0.0
+			for _, c := range s.ReportedCVEs {
+				if c.CVSS > serviceMaxCVSS {
+					serviceMaxCVSS = c.CVSS
+				}
+			}
+
+			var cveLines []string
+			for _, c := range s.ReportedCVEs {
+				cveLines = append(cveLines, fmt.Sprintf("    - 🚨 **%s** (Рейтинг CVSS: `%.1f`) — *%s*", c.ID, c.CVSS, c.Type))
+			}
+
+			if serviceMaxCVSS >= 7.0 {
+				redItems = append(redItems, fmt.Sprintf(
+					"#### ⛔ Порт %d/%s — Служба `%s` (Версия: %s %s)\n"+
+						"  - **Обнаруженные CVE:**\n%s\n"+
+						"  - **Бизнес-риск:** Позволяет удаленному атакующему выполнить произвольный код (RCE) и перехватить управление сервером.\n"+
+						"  - 👉 **Действие:** Срочно изолировать порт правилом в файрволе и обновить ПО до актуальной безопасной версии.",
+					s.Port, s.Protocol, s.Service, s.Product, s.Version, strings.Join(cveLines, "\n"),
+				))
+			} else {
+				yellowItems = append(yellowItems, fmt.Sprintf(
+					"#### ⚠️ Порт %d/%s — Служба `%s` (Версия: %s %s)\n"+
+						"  - **Уязвимости умеренного риска:**\n%s\n"+
+						"  - 👉 **Действие:** Запланировать обновление компонента в ближайшее техническое окно.",
+					s.Port, s.Protocol, s.Service, s.Product, s.Version, strings.Join(cveLines, "\n"),
+				))
+			}
+		} else if s.Port == 22 || s.Port == 3389 || s.Port == 445 || s.Port == 21 || s.Port == 23 {
+			yellowItems = append(yellowItems, fmt.Sprintf(
+				"#### ⚠️ Порт %d/%s — Служба удаленного управления `%s` (%s %s)\n"+
+					"  - **Фактор риска:** Прямой доступ к панели/консоли управления, потенциальная мишень для перебора паролей (брутфорса).\n"+
+					"  - 👉 **Действие:** Запретить прямой вход по паролю, настроить вход исключительно по ключам/сертификатам или скрыть за VPN.",
+				s.Port, s.Protocol, s.Service, s.Product, s.Version,
+			))
+		} else {
+			greenItems = append(greenItems, fmt.Sprintf(
+				"- **Порт %d/%s (`%s` %s %s)**: Штатная служба без зафиксированных проблем безопасности.",
+				s.Port, s.Protocol, s.Service, s.Product, s.Version,
+			))
+		}
+	}
+
+	sb.WriteString("### 🔴 КРАСНЫЙ УРОВЕНЬ: Критические угрозы (Немедленная реакция)\n\n")
+	if len(redItems) > 0 {
+		for _, item := range redItems {
+			sb.WriteString(item + "\n\n")
+		}
+	} else {
+		sb.WriteString("✅ *Критических уязвимостей с высоким рейтингом опасности не выявлено.*\n\n")
+	}
+
+	sb.WriteString("### 🟡 ЖЕЛТЫЙ УРОВЕНЬ: Предупреждения и точки удаленного входа\n\n")
+	if len(yellowItems) > 0 {
+		for _, item := range yellowItems {
+			sb.WriteString(item + "\n\n")
+		}
+	} else {
+		sb.WriteString("✅ *Потенциально опасных точек входа без защиты не обнаружено.*\n\n")
+	}
+
+	sb.WriteString("### 🟢 ЗЕЛЕНЫЙ УРОВЕНЬ: Штатные сервисы без замечаний\n\n")
+	if len(greenItems) > 0 {
+		for _, item := range greenItems {
+			sb.WriteString(item + "\n\n")
+		}
+	} else {
+		sb.WriteString("*Штатных вспомогательных служб не зафиксировано.*\n\n")
+	}
+
+	// --- 4. TOP-3 PRIORITY ACTION PLAN ---
+	sb.WriteString("### 🎯 ТОП-3 первоочередных шага для ИТ-отдела:\n\n")
+	if len(redItems) > 0 {
+		sb.WriteString("1. **Сетевая изоляция периметра:** Настроить правила межсетевого экрана (файрвола), закрыв публичный доступ к критическим портам.\n")
+		sb.WriteString("2. **Установка патчей безопасности:** Произвести внеплановое обновление скомпрометированных пакетов программного обеспечения до стабильных версий.\n")
+		sb.WriteString("3. **Аудит журналов доступа (SIEM/Logs):** Проверить системные логи на предмет следов возможной эксплуатации обнаруженных уязвимостей в прошлом.\n\n")
+	} else {
+		sb.WriteString("1. **Контроль учетных записей:** Включить обязательную двухфакторную аутентификацию (2FA) для всех административных интерфейсов.\n")
+		sb.WriteString("2. **Регламент обновлений:** Настроить регулярную установку обновлений операционной системы по расписанию.\n")
+		sb.WriteString("3. **Периодический аудит:** Проводить повторное сканирование сетевого периметра не реже одного раза в месяц.\n\n")
+	}
+
+	return sb.String()
+}
+
+// BuildDeterministicExecutiveReport produces a standalone executive report formatted strictly according to the AI prompt schema.
+// Used when the audit is run in express mode (no LLM) or if LLM encounters an offline error.
+func BuildDeterministicExecutiveReport(m *IncidentManifest) string {
+	var sb strings.Builder
+
+	maxCVSS := 0.0
+	cveCount := 0
+	hasRemoteAccess := false
+
+	for _, s := range m.OpenServices {
+		for _, c := range s.ReportedCVEs {
+			cveCount++
+			if c.CVSS > maxCVSS {
+				maxCVSS = c.CVSS
+			}
+		}
+		if s.Port == 22 || s.Port == 3389 || s.Port == 445 || s.Port == 21 || s.Port == 23 {
+			hasRemoteAccess = true
+		}
+	}
+
+	severityHeader := "## 🚨 Уровень критичности / Ценность инцидента: 🟢 НИЗКИЙ"
+	incidentValue := "Низкая"
+	threatSummary := "Целевой хост находится в штатном состоянии, известных уязвимостей безопасности не выявлено."
+
+	if maxCVSS >= 7.0 {
+		severityHeader = fmt.Sprintf("## 🚨 Уровень критичности / Ценность инцидента: 🔴 КРИТИЧЕСКИЙ (CVSS %.1f)", maxCVSS)
+		incidentValue = "Критическая (Высокая)"
+		threatSummary = "Обнаружены критические уязвимости удаленного выполнения кода (RCE), позволяющие атакующему получить полный контроль над сервером."
+	} else if maxCVSS > 0.0 || hasRemoteAccess {
+		severityHeader = "## 🚨 Уровень критичности / Ценность инцидента: 🟡 СРЕДНИЙ"
+		incidentValue = "Средняя"
+		threatSummary = "Обнаружены службы удаленного доступа и сервисы, требующие контроля политик аутентификации и планового обновления."
+	}
+
+	sb.WriteString(fmt.Sprintf("# 🛡️ Аналитический отчет безопасности хоста: %s\n\n", m.TargetMetadata.IP))
+	sb.WriteString(severityHeader + "\n")
+	sb.WriteString(fmt.Sprintf("- **Ценность инцидента:** %s — компрометация данного узла создаст непосредственную угрозу сетевому периметру.\n", incidentValue))
+	sb.WriteString(fmt.Sprintf("- **Оценка угрозы:** %s\n\n", threatSummary))
+
+	// Executive Summary
+	sb.WriteString("## 💼 Экспертное резюме для руководства (Executive Summary)\n")
+	if maxCVSS >= 7.0 {
+		sb.WriteString("В ходе аудита хоста выявлены критические дефекты безопасности высшего уровня приоритета. Имеющиеся уязвимости позволяют внешнему злоумышленнику обойти защитные барьеры без знания паролей. Последствия для бизнеса включают прямую угрозу кражи корпоративных данных, установку шифровальщиков-вымогателей и остановку бизнес-процессов. Требуется безотлагательное принятие защитных мер.\n\n")
+	} else if hasRemoteAccess {
+		sb.WriteString("Сетевой периметр хоста содержит открытые сервисы удаленного доступа. Несмотря на отсутствие готовых критических эксплойтов в базе сканирования, прямая доступность консолей управления создает риск подбора учетных данных (брутфорс). Рекомендуется ограничение сетевой видимости.\n\n")
+	} else {
+		sb.WriteString("Сетевой узел функционирует в штатном регламенте. В ходе сканирования не зафиксировано критических дефектов ПО или открытых точек несанкционированного входа.\n\n")
+	}
+
+	// Detailed service breakdown
+	sb.WriteString("## 🔍 Детальный анализ сетевого периметра и уязвимостей\n\n")
+	for _, s := range m.OpenServices {
+		if len(s.ReportedCVEs) > 0 {
+			serviceMaxCVSS := 0.0
+			for _, c := range s.ReportedCVEs {
+				if c.CVSS > serviceMaxCVSS {
+					serviceMaxCVSS = c.CVSS
+				}
+			}
+
+			marker := "🟡"
+			if serviceMaxCVSS >= 7.0 {
+				marker = "🔴"
+			}
+
+			sb.WriteString(fmt.Sprintf("### %s Порт %d/%s — %s (%s %s)\n", marker, s.Port, s.Protocol, s.Service, s.Product, s.Version))
+			var cveParts []string
+			for _, c := range s.ReportedCVEs {
+				cveParts = append(cveParts, fmt.Sprintf("%s (CVSS %.1f, %s)", c.ID, c.CVSS, c.Type))
+			}
+			sb.WriteString(fmt.Sprintf("- **Обнаруженные CVE:** %s\n", strings.Join(cveParts, "; ")))
+			if serviceMaxCVSS >= 7.0 {
+				sb.WriteString("- **Фактор риска:** Удаленное выполнение произвольного кода (RCE), перехват привилегий суперпользователя.\n")
+				sb.WriteString("- **Требуемое действие:** Немедленно изолировать порт правилом файрвола и установить обновления безопасности.\n\n")
+			} else {
+				sb.WriteString("- **Фактор риска:** Умеренная уязвимость ПО, возможный вектор развития вторичной атаки.\n")
+				sb.WriteString("- **Требуемое действие:** Запланировать обновление компонента в рамках регламентного окна.\n\n")
+			}
+		} else if s.Port == 22 || s.Port == 3389 || s.Port == 445 || s.Port == 21 || s.Port == 23 {
+			sb.WriteString(fmt.Sprintf("### 🟡 Порт %d/%s — Служба удаленного доступа %s (%s %s)\n", s.Port, s.Protocol, s.Service, s.Product, s.Version))
+			sb.WriteString("- **Обнаруженные CVE:** Явных CVE в базе сканирования не зафиксировано.\n")
+			sb.WriteString("- **Фактор риска:** Прямой публичный доступ к консоли авторизации, риск атак перебора паролей (брутфорс).\n")
+			sb.WriteString("- **Требуемое действие:** Закрыть порт от публичной сети, перевести авторизацию на ключи/VPN с 2FA.\n\n")
+		} else {
+			sb.WriteString(fmt.Sprintf("### 🟢 Порт %d/%s — %s (%s %s)\n", s.Port, s.Protocol, s.Service, s.Product, s.Version))
+			sb.WriteString("- **Обнаруженные CVE:** Явных CVE в базе сканирования не зафиксировано.\n")
+			sb.WriteString("- **Фактор риска:** Штатный рабочий сервис с минимальным вектором атаки.\n")
+			sb.WriteString("- **Требуемое действие:** Стандартный мониторинг системных журналов.\n\n")
+		}
+	}
+
+	// Attack Vector
+	sb.WriteString("## 🎯 Сценарий возможной атаки (Kill Chain)\n")
+	if maxCVSS >= 7.0 {
+		sb.WriteString("1. **Внешняя разведка:** Сканирование периметра выявляет доступные службы и устаревшие версии библиотек.\n")
+		sb.WriteString("2. **Первоначальное проникновение:** Отправка эксплойта через уязвимый порт и получение непривилегированного шелла на сервере.\n")
+		sb.WriteString("3. **Эскалация привилегий и латеральное движение:** Повышение прав до root/SYSTEM, выгрузка паролей и попытка компрометации соседних узлов локальной сети.\n\n")
+	} else if hasRemoteAccess {
+		sb.WriteString("1. **Разведка портов:** Обнаружение открытых административных портов без ограничения по IP.\n")
+		sb.WriteString("2. **Атака перебором (Brute-force):** Автоматизированный перебор скомпрометированных словарей паролей.\n")
+		sb.WriteString("3. **Несанкционированный вход:** Доступ к учетной записи и выполнение команд в системе.\n\n")
+	} else {
+		sb.WriteString("Прямых сценариев эксплуатации обнаруженных портов в автоматическом режиме не идентифицировано.\n\n")
+	}
+
+	// Priority Action Plan
+	sb.WriteString("## 🛠️ Первоочередные меры защиты (Action Plan)\n")
+	if maxCVSS >= 7.0 {
+		sb.WriteString("1. **Сетевая изоляция:** Закрыть публичный доступ к портам с критическими CVE на уровне граничного межсетевого экрана.\n")
+		sb.WriteString("2. **Экстренный патчинг:** Обновить скомпрометированное ПО до актуальных безопасных версий вендора.\n")
+		sb.WriteString("3. **Аудит логов:** Проверить журналы аутентификации и системные логи на предмет предшествующих попыток вторжения.\n")
+	} else {
+		sb.WriteString("1. **Ограничение доступа:** Настроить фильтрацию по белому списку доверенных IP-адресов.\n")
+		sb.WriteString("2. **Усиление авторизации:** Отключить вход по паролям, включить многофакторную аутентификацию (MFA).\n")
+		sb.WriteString("3. **Плановый аудит:** Проводить регулярный контрольный аудит безопасности сетевого периметра.\n")
 	}
 
 	return sb.String()

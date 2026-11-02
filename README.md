@@ -52,12 +52,21 @@ cd D:\GoProjects\host-security-auditor
 ```
 Сервер автоматически запустится на `http://localhost:8080` и откроет страницу в браузере.
 
-### 2. Запуск через `go run`
+### 2. Запуск в Docker / Docker Compose (рекомендуется для коллег и преподавателей)
+Всё необходимое (Go-бэкенд, веб-интерфейс, утилита Nmap и NSE-скрипты уязвимостей vulners) уже упаковано в контейнер:
+```bash
+docker compose up -d --build
+```
+или двойным кликом по `docker-run.bat`.
+* Веб-интерфейс: `http://localhost:8080`
+* Связь с локальной LLM на хост-машине: `http://host.docker.internal:5000/v1` (для TextGen/LM Studio) или `http://host.docker.internal:11434/v1` (для Ollama).
+
+### 3. Запуск через `go run`
 ```powershell
 go run .\cmd\auditor
 ```
 
-### 3. Быстрый CLI-тест со стендом из PDF (без браузера)
+### 4. Быстрый CLI-тест со стендом из PDF (без браузера)
 ```powershell
 .\auditor.exe -target 192.168.10.15 -profile aggressive -demo
 ```

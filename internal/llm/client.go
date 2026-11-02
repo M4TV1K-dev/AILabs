@@ -14,10 +14,11 @@ import (
 	"host-security-auditor/internal/normalizer"
 )
 
-// AIResult holds both the final extracted analysis and any reasoning thoughts
+// AIResult holds both the final extracted analysis, any reasoning thoughts, and the raw model output
 type AIResult struct {
-	Analysis  string
-	Reasoning string
+	Analysis    string
+	Reasoning   string
+	RawResponse string
 }
 
 // Client handles interaction with local LLM APIs
@@ -54,7 +55,11 @@ func (c *Client) GenerateAnalysis(ctx context.Context, manifest *normalizer.Inci
 		if err != nil {
 			return nil, err
 		}
-		return &AIResult{Analysis: text}, nil
+		analysis := normalizer.ExtractBestAIAnalysis(text, "", "")
+		return &AIResult{
+			Analysis:    analysis,
+			RawResponse: text,
+		}, nil
 	}
 
 	return c.callOpenAICompatible(ctx, userPrompt)
@@ -161,9 +166,15 @@ func (c *Client) callOpenAICompatible(ctx context.Context, userPrompt string) (*
 	// Extract the most complete and polished Russian analysis
 	analysis := normalizer.ExtractBestAIAnalysis(mainContent, reasoning, choice.FinishReason)
 
+	rawResponse := mainContent
+	if rawResponse == "" && reasoning != "" {
+		rawResponse = reasoning
+	}
+
 	return &AIResult{
-		Analysis:  analysis,
-		Reasoning: reasoning,
+		Analysis:    analysis,
+		Reasoning:   reasoning,
+		RawResponse: rawResponse,
 	}, nil
 }
 

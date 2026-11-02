@@ -151,15 +151,24 @@ func (s *Server) handleReanalyzeTask(w http.ResponseWriter, r *http.Request) {
 
 		s.llmClient.UpdateConfig(s.cfg.GetLLM())
 		res, err := s.llmClient.GenerateAnalysis(ctx, task.Manifest)
-		var aiSummary, reasoning string
+		var aiSummary, rawAI, reasoning string
 		if err != nil {
 			s.orchestrator.Store.AppendLog(task.ID, fmt.Sprintf("[ОШИБКА LLM] %v", err))
+			aiSummary = normalizer.BuildDeterministicExecutiveReport(task.Manifest)
+			rawAI = fmt.Sprintf("Ошибка вызова LLM: %v", err)
 		} else {
 			aiSummary = res.Analysis
+			rawAI = res.RawResponse
+			if rawAI == "" {
+				rawAI = res.Analysis
+			}
 			reasoning = res.Reasoning
 			s.orchestrator.Store.AppendLog(task.ID, "[LLM] Отчет успешно обновлен моделью!")
 		}
-		task.LLMReport = normalizer.BuildExecutiveReport(task.Manifest, aiSummary, reasoning)
+		task.LLMReport = aiSummary
+		task.TechReport = normalizer.BuildTechnicalReport(task.Manifest)
+		task.AIResponse = rawAI
+		task.AIReasoning = reasoning
 		s.orchestrator.Store.UpdateStatus(task.ID, orchestrator.StatusCompleted, 100)
 		s.orchestrator.Store.Add(task)
 	}()
@@ -175,14 +184,26 @@ func (s *Server) handleDownloadReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filename := fmt.Sprintf("audit-report-%s.md", sanitizeFilename(task.Target))
+	reportType := r.URL.Query().Get("type")
+	var filename string
+	var content string
+
+	if reportType == "tech" {
+		filename = fmt.Sprintf("technical-audit-%s.md", sanitizeFilename(task.Target))
+		content = task.TechReport
+		if content == "" {
+			content = normalizer.BuildTechnicalReport(task.Manifest)
+		}
+	} else {
+		filename = fmt.Sprintf("ai-security-report-%s.md", sanitizeFilename(task.Target))
+		content = task.LLMReport
+		if content == "" {
+			content = fmt.Sprintf("# Отчет по аудиту %s\n\nОтчет еще не сформирован. Текущий статус: %s", task.Target, task.Status)
+		}
+	}
+
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
-
-	content := task.LLMReport
-	if content == "" {
-		content = fmt.Sprintf("# Отчет по аудиту %s\n\nОтчет еще не сформирован. Текущий статус: %s", task.Target, task.Status)
-	}
 	w.Write([]byte(content))
 }
 

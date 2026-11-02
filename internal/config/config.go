@@ -47,6 +47,7 @@ func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			applyEnvOverrides(cfg)
 			_ = cfg.Save(path)
 			return cfg, nil
 		}
@@ -57,7 +58,30 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
+	applyEnvOverrides(cfg)
+
 	return cfg, nil
+}
+
+func applyEnvOverrides(cfg *Config) {
+	if env := os.Getenv("LLM_ENDPOINT"); env != "" {
+		cfg.LLM.Endpoint = env
+	}
+	if env := os.Getenv("LLM_PROVIDER"); env != "" {
+		cfg.LLM.Provider = env
+	}
+	if env := os.Getenv("LLM_MODEL"); env != "" {
+		cfg.LLM.Model = env
+	}
+	if env := os.Getenv("LLM_API_KEY"); env != "" {
+		cfg.LLM.APIKey = env
+	}
+	if env := os.Getenv("NMAP_PATH"); env != "" {
+		cfg.NmapPath = env
+	}
+	if env := os.Getenv("SERVER_PORT"); env != "" {
+		cfg.ServerPort = env
+	}
 }
 
 // Save writes current configuration to disk.

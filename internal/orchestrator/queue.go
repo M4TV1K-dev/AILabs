@@ -31,6 +31,9 @@ type AuditTask struct {
 	RawXML      string                       `json:"raw_xml,omitempty"`
 	Manifest    *normalizer.IncidentManifest `json:"manifest,omitempty"`
 	LLMReport   string                       `json:"llm_report,omitempty"`
+	TechReport  string                       `json:"tech_report,omitempty"`
+	AIResponse  string                       `json:"ai_response,omitempty"`
+	AIReasoning string                       `json:"ai_reasoning,omitempty"`
 	Error       string                       `json:"error,omitempty"`
 	IsDemo      bool                         `json:"is_demo"`
 	NoLLM       bool                         `json:"no_llm"`

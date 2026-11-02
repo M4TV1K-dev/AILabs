@@ -133,35 +133,47 @@ func (o *Orchestrator) runPipeline(task *AuditTask) {
 	log(fmt.Sprintf("[НОРМАЛИЗАТОР] Успешно сформирован манифест: %d открытых сервисов, %d подтвержденных CVE", len(manifest.OpenServices), totalCVEs))
 	o.Store.UpdateStatus(task.ID, StatusAnalyzingLLM, 70)
 
+	// Generate factual technical verification report (сверка)
+	techReport := normalizer.BuildTechnicalReport(manifest)
+
 	// --- STAGE 3: SYNTHESIS & REPORTING ---
-	var aiSummary, reasoning string
+	var aiSummary, rawAI, reasoning string
 	if task.NoLLM {
-		log("==> ЭТАП 3/3: Экспресс-генерация SOC-отчета (детерминированный режим без LLM)...")
+		log("==> ЭТАП 3/3: Экспресс-генерация отчета (детерминированный режим без LLM)...")
+		aiSummary = normalizer.BuildDeterministicExecutiveReport(manifest)
+		rawAI = "(LLM отключен: запущен режим экспресс-аудита)"
 	} else {
 		o.Store.UpdateStatus(task.ID, StatusAnalyzingLLM, 70)
 		log(fmt.Sprintf("==> ЭТАП 3/3: Передача данных в локальную LLM (%s via %s)...", o.Cfg.LLM.Model, o.Cfg.LLM.Provider))
-		log("[LLM] Применение строгого системного промпта SOC аналитика (защита от галлюцинаций)...")
+		log("[LLM] Применение строгого системного промпта SOC аналитика...")
 
 		// Update LLM config before call in case user edited settings
 		o.LLMClient.UpdateConfig(o.Cfg.GetLLM())
 
 		aiResult, err := o.LLMClient.GenerateAnalysis(ctx, manifest)
 		if err != nil {
-			log(fmt.Sprintf("[ВНИМАНИЕ] LLM вернул сообщение: %v. Формируем эталонный отчет...", err))
+			log(fmt.Sprintf("[ВНИМАНИЕ] LLM вернул сообщение: %v. Формируем резервный отчет...", err))
+			aiSummary = normalizer.BuildDeterministicExecutiveReport(manifest)
+			rawAI = fmt.Sprintf("Ошибка вызова LLM: %v", err)
 		} else {
 			aiSummary = aiResult.Analysis
+			rawAI = aiResult.RawResponse
+			if rawAI == "" {
+				rawAI = aiResult.Analysis
+			}
 			reasoning = aiResult.Reasoning
-			log("[LLM] Экспертное заключение от локальной нейросети успешно синтезировано!")
+			log("[LLM] Экспертное аналитическое заключение от локальной нейросети успешно получено!")
 		}
 	}
-
-	report := normalizer.BuildExecutiveReport(manifest, aiSummary, reasoning)
 
 	// --- COMPLETION ---
 	completedAt := time.Now()
 	duration := completedAt.Sub(startTime).Round(time.Second).String()
 
-	task.LLMReport = report
+	task.LLMReport = aiSummary
+	task.TechReport = techReport
+	task.AIResponse = rawAI
+	task.AIReasoning = reasoning
 	task.Status = StatusCompleted
 	task.Progress = 100
 	task.CompletedAt = &completedAt

@@ -60,6 +60,19 @@ function setupEventListeners() {
   document.getElementById("btn-reanalyze").addEventListener("click", reanalyzeTask);
   document.getElementById("btn-print").addEventListener("click", () => window.print());
   document.getElementById("btn-copy-json").addEventListener("click", copyJSONManifest);
+
+  // Debug & verification actions
+  const btnCopyRawAI = document.getElementById("btn-copy-raw-ai");
+  if (btnCopyRawAI) btnCopyRawAI.addEventListener("click", copyRawAI);
+
+  const btnCopyReasoning = document.getElementById("btn-copy-ai-reasoning");
+  if (btnCopyReasoning) btnCopyReasoning.addEventListener("click", copyAIReasoning);
+
+  const btnCopyXML = document.getElementById("btn-copy-xml");
+  if (btnCopyXML) btnCopyXML.addEventListener("click", copyRawXML);
+
+  const btnDownloadTech = document.getElementById("btn-download-tech");
+  if (btnDownloadTech) btnDownloadTech.addEventListener("click", downloadTechReport);
 }
 
 // Load available profiles from Go backend
@@ -225,17 +238,42 @@ function updateTaskUI(task) {
     document.getElementById("metric-cves").innerText = cveCount;
     document.getElementById("metric-duration").innerText = task.duration || "-";
 
-    // Render LLM Markdown Report
+    // 1. Render AI Markdown Report (Primary View)
     const reportElem = document.getElementById("report-content");
-    reportElem.innerHTML = renderMarkdown(task.llm_report || "Отчет формируется...");
+    reportElem.innerHTML = renderAIReport(task.llm_report || "Отчет формируется...");
 
-    // Render Services Table
+    // 2. Render Raw AI Debug View
+    const rawAIElem = document.getElementById("raw-ai-content");
+    const rawReasoningElem = document.getElementById("raw-ai-reasoning");
+    const rawAIChars = document.getElementById("raw-ai-chars");
+    const rawReasoningChars = document.getElementById("raw-ai-reasoning-chars");
+
+    const rawResponse = task.ai_response || "(Сырой ответ модели не сохранен)";
+    if (rawAIElem) rawAIElem.innerText = rawResponse;
+    if (rawAIChars) rawAIChars.innerText = `${rawResponse.length} симв.`;
+
+    const rawReasoning = task.ai_reasoning || "(Мыслительные токены / reasoning_content не зафиксированы)";
+    if (rawReasoningElem) rawReasoningElem.innerText = rawReasoning;
+    if (rawReasoningChars) rawReasoningChars.innerText = `${rawReasoning.length} симв.`;
+
+    const modelBadge = document.getElementById("raw-ai-model-badge");
+    if (modelBadge) {
+      modelBadge.innerText = `🤖 LLM: ${task.profile ? task.profile.name : "Аналитик"}`;
+    }
+
+    // 3. Render Technical Verification Report (Сверка)
+    const techReportElem = document.getElementById("tech-report-content");
+    if (techReportElem) {
+      techReportElem.innerHTML = renderMarkdown(task.tech_report || "Технический отчет не сформирован.");
+    }
+
+    // 4. Render Services Table
     renderServicesTable(task.manifest.open_services);
 
-    // Render JSON Manifest
+    // 5. Render JSON Manifest
     document.getElementById("json-manifest").innerText = JSON.stringify(task.manifest, null, 2);
 
-    // Render Raw XML
+    // 6. Render Raw XML
     document.getElementById("raw-xml-content").innerText = task.raw_xml || "(Сырой XML не сохранен)";
   }
 }
@@ -291,6 +329,118 @@ function renderServicesTable(services) {
     `;
     tbody.appendChild(tr);
   });
+}
+
+// Smart AI report renderer that parses structured markdown, extracts severity & incident value,
+// and colorizes headings into sleek incident cards.
+function renderAIReport(md) {
+  if (!md) return "<em>Отчет формируется...</em>";
+
+  // Check overall threat level from text
+  const isCritical = md.includes("🔴") || md.includes("КРИТИЧЕСКИЙ") || md.includes("Критический");
+  const isWarning = !isCritical && (md.includes("🟡") || md.includes("СРЕДНИЙ") || md.includes("Средний") || md.includes("ВЫСОКИЙ") || md.includes("Высокий"));
+  const isSafe = !isCritical && !isWarning && (md.includes("🟢") || md.includes("НИЗКИЙ") || md.includes("Низкий") || md.includes("Штатное"));
+
+  let bannerHtml = "";
+  if (isCritical) {
+    bannerHtml = `
+      <div class="incident-banner critical">
+        <div class="banner-left">
+          <div class="banner-icon">🚨</div>
+          <div>
+            <div class="banner-title">КРИТИЧЕСКИЙ УРОВЕНЬ УГРОЗЫ • Ценность инцидента: Высокая (Критическая)</div>
+            <div class="banner-desc">Обнаружены критические уязвимости удаленного выполнения кода (RCE). Высокая вероятность полной компрометации хоста.</div>
+          </div>
+        </div>
+        <div class="banner-badge red">НЕМЕДЛЕННАЯ РЕАКЦИЯ</div>
+      </div>
+    `;
+  } else if (isWarning) {
+    bannerHtml = `
+      <div class="incident-banner warning">
+        <div class="banner-left">
+          <div class="banner-icon">⚠️</div>
+          <div>
+            <div class="banner-title">ПОВЫШЕННЫЙ УРОВЕНЬ РИСКА • Ценность инцидента: Средняя</div>
+            <div class="banner-desc">Зафиксированы открытые административные сервисы и компоненты, требующие внимания ИТ-службы.</div>
+          </div>
+        </div>
+        <div class="banner-badge yellow">ТРЕБУЕТ ВНИМАНИЯ</div>
+      </div>
+    `;
+  } else if (isSafe) {
+    bannerHtml = `
+      <div class="incident-banner safe">
+        <div class="banner-left">
+          <div class="banner-icon">✅</div>
+          <div>
+            <div class="banner-title">НИЗКИЙ УРОВЕНЬ УГРОЗЫ • Ценность инцидента: Низкая</div>
+            <div class="banner-desc">Сетевой узел функционирует в штатном режиме, критических брешей не обнаружено.</div>
+          </div>
+        </div>
+        <div class="banner-badge green">ШТАТНЫЙ РЕЖИМ</div>
+      </div>
+    `;
+  }
+
+  // Escape HTML tags
+  let html = md
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  // Code blocks
+  html = html.replace(/```([\s\S]*?)```/g, "<pre><code>$1</code></pre>");
+
+  // Transform Service H3 into styled incident cards
+  // e.g. ### 🔴 Порт 80/tcp — Apache
+  html = html.replace(/^###\s*(?:\[?(🔴|⛔)\]?)\s*(.*$)/gim, '<div class="service-incident-card threat-critical"><div class="service-card-title">🔴 $2</div>');
+  html = html.replace(/^###\s*(?:\[?(🟡|⚠️)\]?)\s*(.*$)/gim, '<div class="service-incident-card threat-warning"><div class="service-card-title">🟡 $2</div>');
+  html = html.replace(/^###\s*(?:\[?(🟢|✅)\]?)\s*(.*$)/gim, '<div class="service-incident-card threat-safe"><div class="service-card-title">🟢 $2</div>');
+  html = html.replace(/^###\s*(.*$)/gim, '<div class="service-incident-card threat-safe"><div class="service-card-title">$1</div>');
+
+  // H2 Section cards
+  html = html.replace(/^##\s*(?:💼|Экспертное|Резюме).*(.*$)/gim, '</div><div class="ai-section-card exec-summary"><h2 style="color:#38bdf8; font-size:1.15rem; margin-bottom:0.75rem;">💼 Резюме для руководства</h2>');
+  html = html.replace(/^##\s*(?:🎯|Сценарий|Kill).*(.*$)/gim, '</div><div class="ai-section-card attack-chain"><h2 style="color:#f59e0b; font-size:1.15rem; margin-bottom:0.75rem;">🎯 Сценарий возможной атаки</h2>');
+  html = html.replace(/^##\s*(?:🛠️|Первоочередные|Action).*(.*$)/gim, '</div><div class="ai-section-card action-plan"><h2 style="color:#10b981; font-size:1.15rem; margin-bottom:0.75rem;">🛠️ Первоочередные меры защиты (Action Plan)</h2>');
+  html = html.replace(/^##\s*(?:🔍|Детальный|Анализ).*(.*$)/gim, '</div><div style="margin:1.5rem 0 0.75rem 0;"><h2 style="color:#fff; font-size:1.2rem; border-bottom:1px solid var(--border-color); padding-bottom:0.4rem;">🔍 Анализ сетевого периметра и служб</h2>');
+  html = html.replace(/^##\s*(?:🚨|Уровень|Ценность).*(.*$)/gim, '</div><div style="margin:1rem 0 0.5rem 0;"><h2 style="color:#f1f5f9; font-size:1.1rem;">🚨 $1</h2>');
+  html = html.replace(/^##\s*(.*$)/gim, '</div><h2 style="color:#fff; margin-top:1.5rem; font-size:1.2rem; border-bottom:1px solid var(--border-color); padding-bottom:0.4rem;">$1</h2>');
+
+  // Main title #
+  html = html.replace(/^#\s*(.*$)/gim, '<h1 style="color:#fff; font-size:1.4rem; border-bottom:2px solid var(--accent-blue); padding-bottom:0.5rem; margin-bottom:1.25rem;">$1</h1>');
+
+  // Numbered action items inside Action plan
+  html = html.replace(/^(\d+)\.\s*\*\*(.*?)\*\*:?\s*(.*$)/gim, '<div class="action-step"><span class="action-step-num">$1</span><div><strong>$2</strong>: $3</div></div>');
+  html = html.replace(/^(\d+)\.\s*(.*$)/gim, '<div class="action-step"><span class="action-step-num">$1</span><div>$2</div></div>');
+
+  // Inline CVE Pills
+  html = html.replace(/\b(CVE-\d{4}-\d+)\b/g, '<span class="cve-pill">$1</span>');
+
+  // Inline CVSS Pills
+  html = html.replace(/\b(CVSS\s*(?:Рейтинг\s*)?:?\s*\d+(?:\.\d+)?)\b/gi, '<span class="cvss-pill">$1</span>');
+
+  // Bold & Italic & Code
+  html = html.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\*(.*?)\*/g, "<em>$1</em>");
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+
+  // Bullet items
+  html = html.replace(/^\-\s*(.*$)/gim, "<li style='margin:0.25rem 0; margin-left:1.2rem;'>$1</li>");
+
+  // Blockquotes
+  html = html.replace(/^\>\s*(.*$)/gim, "<blockquote>$1</blockquote>");
+
+  // Clean orphan div tags
+  if (html.startsWith("</div>")) {
+    html = html.substring(6);
+  }
+  html += "</div>";
+
+  // Line breaks
+  html = html.replace(/\n\n/g, "<br/>");
+
+  return bannerHtml + html;
 }
 
 // Simple fast markdown parser to render headings, bold, bullet lists, badges
@@ -428,6 +578,40 @@ function copyJSONManifest() {
   navigator.clipboard.writeText(jsonText).then(() => {
     alert("JSON-манифест успешно скопирован в буфер обмена!");
   });
+}
+
+function copyRawAI() {
+  const text = document.getElementById("raw-ai-content").innerText;
+  if (!text || text.startsWith("//")) {
+    alert("Ответ ИИ еще не сформирован.");
+    return;
+  }
+  navigator.clipboard.writeText(text).then(() => {
+    alert("Сырой ответ ИИ успешно скопирован в буфер обмена!");
+  });
+}
+
+function copyAIReasoning() {
+  const text = document.getElementById("raw-ai-reasoning").innerText;
+  if (!text || text.startsWith("//")) {
+    alert("Лог рассуждений модели отсутствует.");
+    return;
+  }
+  navigator.clipboard.writeText(text).then(() => {
+    alert("Лог мыслей модели (Reasoning) скопирован в буфер обмена!");
+  });
+}
+
+function copyRawXML() {
+  const text = document.getElementById("raw-xml-content").innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    alert("Сырой XML Nmap успешно скопирован в буфер обмена!");
+  });
+}
+
+function downloadTechReport() {
+  if (!currentTask) return;
+  window.location.href = `/api/tasks/${currentTask.id}/download?type=tech`;
 }
 
 // Config & Settings

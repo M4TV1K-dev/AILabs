@@ -132,3 +132,75 @@ func TestExtractBestAIAnalysis(t *testing.T) {
 		t.Errorf("Expected reasoning scaffolding stripped, got: %s", result)
 	}
 }
+
+func TestBuildTechnicalReport(t *testing.T) {
+	manifest := &IncidentManifest{
+		TargetMetadata: TargetMetadata{
+			IP:         "192.168.1.50",
+			OSDetected: "Linux 4.15",
+			ScanType:   "Standard",
+		},
+		OpenServices: []ServiceItem{
+			{
+				Port:     22,
+				Protocol: "tcp",
+				Service:  "ssh",
+				Product:  "OpenSSH",
+				Version:  "7.6",
+			},
+			{
+				Port:     80,
+				Protocol: "tcp",
+				Service:  "http",
+				Product:  "Apache",
+				Version:  "2.4.29",
+				ReportedCVEs: []CVEItem{
+					{ID: "CVE-2021-41773", CVSS: 7.5, Type: "Path Traversal / RCE"},
+				},
+			},
+		},
+	}
+
+	techReport := BuildTechnicalReport(manifest)
+	if !strings.Contains(techReport, "Технический отчет аудита сетевого хоста (Сверка фактов)") {
+		t.Errorf("Expected technical report header, got: %s", techReport)
+	}
+	if !strings.Contains(techReport, "CVE-2021-41773") {
+		t.Errorf("Expected CVE in technical report, got: %s", techReport)
+	}
+	if !strings.Contains(techReport, "Паспорт проверяемого сетевого узла") {
+		t.Errorf("Expected passport table in technical report, got: %s", techReport)
+	}
+}
+
+func TestBuildDeterministicExecutiveReport(t *testing.T) {
+	manifest := &IncidentManifest{
+		TargetMetadata: TargetMetadata{
+			IP:         "192.168.1.50",
+			OSDetected: "Linux 4.15",
+		},
+		OpenServices: []ServiceItem{
+			{
+				Port:     80,
+				Protocol: "tcp",
+				Service:  "http",
+				Product:  "Apache",
+				Version:  "2.4.29",
+				ReportedCVEs: []CVEItem{
+					{ID: "CVE-2021-41773", CVSS: 7.5, Type: "RCE"},
+				},
+			},
+		},
+	}
+
+	execReport := BuildDeterministicExecutiveReport(manifest)
+	if !strings.Contains(execReport, "# 🛡️ Аналитический отчет безопасности хоста") {
+		t.Errorf("Expected title, got: %s", execReport)
+	}
+	if !strings.Contains(execReport, "Уровень критичности / Ценность инцидента: 🔴 КРИТИЧЕСКИЙ") {
+		t.Errorf("Expected critical banner, got: %s", execReport)
+	}
+	if !strings.Contains(execReport, "Экспертное резюме для руководства") {
+		t.Errorf("Expected executive summary, got: %s", execReport)
+	}
+}

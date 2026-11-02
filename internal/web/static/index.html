@@ -158,35 +158,112 @@
 
       <!-- Navigation Tabs -->
       <div class="tabs-header">
-        <button class="tab-btn active" data-tab="tab-report">
-          📊 Бизнес-сводка ИБ (LLM Отчет)
+        <button class="tab-btn active" data-tab="tab-report" title="Аналитический отчет, синтезированный локальной LLM">
+          🤖 Аналитический отчет ИИ
         </button>
-        <button class="tab-btn" data-tab="tab-services">
-          🛡️ Службы и CVE
+        <button class="tab-btn" data-tab="tab-ai-raw" title="Сырой ответ и логи рассуждений локальной нейросети">
+          🧠 Ответ ИИ (Отладка)
         </button>
-        <button class="tab-btn" data-tab="tab-manifest">
-          📋 Контекстный JSON-манифест
+        <button class="tab-btn" data-tab="tab-manifest" title="Нормализованный JSON-манифест инцидента">
+          📋 Скан JSON (Манифест)
         </button>
-        <button class="tab-btn" data-tab="tab-xml">
-          📜 Сырой Nmap XML
+        <button class="tab-btn" data-tab="tab-xml" title="Сырой вывод Nmap">
+          📜 Сырой скан (Nmap)
+        </button>
+        <button class="tab-btn" data-tab="tab-tech-report" title="Детерминированный технический отчет для проверки фактов">
+          🔍 Сверка / Технический отчет
+        </button>
+        <button class="tab-btn" data-tab="tab-services" title="Таблица найденных портов и версий">
+          🛡️ Порты и службы
         </button>
       </div>
 
-      <!-- Tab 1: LLM Report -->
+      <!-- Tab 1: AI Report (Primary View) -->
       <div class="tab-panel active" id="tab-report">
         <div class="report-container">
           <div class="report-toolbar">
-            <button class="btn-icon" id="btn-reanalyze" title="Повторно отправить JSON в TextGen">🔄 Перегенерировать LLM</button>
-            <button class="btn-icon" id="btn-download-md" title="Скачать в формате Markdown">📥 Скачать .md</button>
+            <button class="btn-icon" id="btn-reanalyze" title="Повторно отправить JSON в TextGen / LLM">🔄 Перегенерировать в LLM</button>
+            <button class="btn-icon" id="btn-download-md" title="Скачать аналитический отчет в формате Markdown">📥 Скачать отчет (.md)</button>
             <button class="btn-icon" id="btn-print" title="Распечатать или сохранить в PDF">🖨️ Печать / PDF</button>
           </div>
           <div class="report-body" id="report-content">
-            <em>Запустите сканирование или выберите задачу из истории для просмотра отчета.</em>
+            <em>Запустите сканирование или выберите задачу из истории для просмотра аналитического заключения ИИ.</em>
           </div>
         </div>
       </div>
 
-      <!-- Tab 2: Services & CVEs -->
+      <!-- Tab 2: Raw AI Output & Debugging (Must Have) -->
+      <div class="tab-panel" id="tab-ai-raw">
+        <div class="report-container">
+          <div class="report-toolbar" style="justify-content: space-between;">
+            <div style="display:flex; align-items:center; gap:0.6rem;">
+              <span class="badge-tag" id="raw-ai-model-badge">🤖 Локальный LLM инференс</span>
+              <span style="font-size:0.8rem; color:var(--text-dim);" id="raw-ai-meta">Отладка ответа нейросети</span>
+            </div>
+            <div style="display:flex; gap:0.6rem;">
+              <button class="btn-icon" id="btn-copy-raw-ai" title="Копировать чистый ответ нейросети">📋 Копировать ответ ИИ</button>
+              <button class="btn-icon" id="btn-copy-ai-reasoning" title="Копировать мысли (CoT)">🧠 Копировать мысли (Reasoning)</button>
+            </div>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:1.25rem;">
+            <div>
+              <div style="font-size:0.8rem; font-weight:600; color:var(--accent-blue); margin-bottom:0.4rem; display:flex; justify-content:space-between;">
+                <span>💬 Сырой ответ модели (Raw Content):</span>
+                <span id="raw-ai-chars" style="color:var(--text-dim); font-size:0.75rem;">0 симв.</span>
+              </div>
+              <pre class="json-viewer" id="raw-ai-content">// Ответ ИИ будет отображен здесь после завершения инференса</pre>
+            </div>
+
+            <div>
+              <div style="font-size:0.8rem; font-weight:600; color:var(--risk-yellow); margin-bottom:0.4rem; display:flex; justify-content:space-between;">
+                <span>🧠 Внутренний лог рассуждений модели (Reasoning Content / CoT):</span>
+                <span id="raw-ai-reasoning-chars" style="color:var(--text-dim); font-size:0.75rem;">0 симв.</span>
+              </div>
+              <pre class="json-viewer" id="raw-ai-reasoning" style="color:#cbd5e1; font-style:italic;">// Мыслительные токены (reasoning_content) от моделей DeepSeek-R1 / Qwen / Ollama</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 3: JSON Manifest (Strict Context) -->
+      <div class="tab-panel" id="tab-manifest">
+        <div style="margin-bottom:0.75rem; display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:0.8rem; color:var(--text-muted);">
+            Нормализованный структурированный JSON-манифест, передаваемый в промпт нейросети:
+          </span>
+          <button class="btn-icon" id="btn-copy-json">📋 Копировать JSON</button>
+        </div>
+        <pre class="json-viewer" id="json-manifest">// Манифест будет отображен после завершения сканирования</pre>
+      </div>
+
+      <!-- Tab 4: Raw XML / Nmap Output -->
+      <div class="tab-panel" id="tab-xml">
+        <div style="margin-bottom:0.75rem; display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:0.8rem; color:var(--text-muted);">
+            Сырой вывод Nmap-сканера (XML-структура и заголовки служб):
+          </span>
+          <button class="btn-icon" id="btn-copy-xml">📋 Копировать скан</button>
+        </div>
+        <pre class="json-viewer" id="raw-xml-content">// Сырой XML вывод Nmap</pre>
+      </div>
+
+      <!-- Tab 5: Technical Report (Factual Verification / Сверка) -->
+      <div class="tab-panel" id="tab-tech-report">
+        <div class="report-container">
+          <div class="report-toolbar" style="justify-content: space-between;">
+            <span style="font-size:0.8rem; color:var(--text-muted); display:flex; align-items:center; gap:0.4rem;">
+              ℹ️ Детерминированный технический отчет (сверка фактов и версий ПО)
+            </span>
+            <button class="btn-icon" id="btn-download-tech" title="Скачать технический отчет для сверки">📥 Скачать тех. отчет (.md)</button>
+          </div>
+          <div class="report-body" id="tech-report-content">
+            <em>Запустите сканирование для формирования отчета сверки.</em>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 6: Services & CVEs Table -->
       <div class="tab-panel" id="tab-services">
         <table class="services-table">
           <thead>
@@ -204,22 +281,6 @@
             </tr>
           </tbody>
         </table>
-      </div>
-
-      <!-- Tab 3: JSON Manifest (Strict Context) -->
-      <div class="tab-panel" id="tab-manifest">
-        <div style="margin-bottom:0.75rem; display:flex; justify-content:space-between; align-items:center;">
-          <span style="font-size:0.8rem; color:var(--text-muted);">
-            Данный нормализованный манифест передается в модель (исключая шум и галлюцинации):
-          </span>
-          <button class="btn-icon" id="btn-copy-json">📋 Копировать JSON</button>
-        </div>
-        <pre class="json-viewer" id="json-manifest">// Манифест будет отображен после завершения сканирования</pre>
-      </div>
-
-      <!-- Tab 4: Raw XML -->
-      <div class="tab-panel" id="tab-xml">
-        <pre class="json-viewer" id="raw-xml-content">// Сырой XML вывод Nmap</pre>
       </div>
     </main>
   </div>
